@@ -78,6 +78,7 @@
     <button type="button" role="tab" class="vl-tab" data-tab="checks" aria-selected="false">Security checks</button>
     <button type="button" role="tab" class="vl-tab" data-tab="owasp" aria-selected="false">OWASP Top 10</button>
     <button type="button" role="tab" class="vl-tab" data-tab="tests" aria-selected="false">Guided tests</button>
+    <button type="button" role="tab" class="vl-tab" data-tab="payloads" aria-selected="false">Payloads</button>
     <button type="button" role="tab" class="vl-tab" data-tab="traffic" aria-selected="false">Burp traffic</button>
     <button type="button" role="tab" class="vl-tab" data-tab="notes" aria-selected="false">Notes</button>
   </nav>
@@ -121,6 +122,22 @@
       </div>
       <div id="authGate" class="vl-gate vl-hidden"></div>
       <div id="cards"></div>
+    </section>
+
+    <section class="vl-panel" data-panel="payloads" role="tabpanel" hidden>
+      <p class="vl-hint">Curated, non-destructive test strings and techniques for manual testing only. VAPT Lens never sends them — you copy them into Burp Repeater or your browser. Tick “I’m authorized to test this target” to view.</p>
+      <div class="vl-toolbar">
+        <label class="vl-field">
+          <span class="vl-subtle">Attack class</span>
+          <select id="playbookCategory"><option value="">All attack classes</option></select>
+        </label>
+        <label class="vl-field vl-grow">
+          <span class="vl-subtle">Search</span>
+          <input id="playbookSearch" type="search" placeholder="Search techniques, payloads, OWASP…" autocomplete="off">
+        </label>
+        <span id="playbookCount" class="vl-subtle vl-count"></span>
+      </div>
+      <div id="playbooks"></div>
     </section>
 
     <section class="vl-panel" data-panel="traffic" role="tabpanel" hidden>
