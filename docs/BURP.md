@@ -4,9 +4,11 @@ Burp Suite **Community has no built-in REST API**, so VAPT Lens cannot read its 
 directly. There are three supported paths. All of them use **request metadata only** —
 parameter values, cookies, auth headers and bodies are ignored or discarded.
 
-> The bridge must be running for live streaming or AI analysis:
-> `npm run bridge` from the project root. Verify with
-> `curl http://127.0.0.1:8787/api/health` (expect `{"ok":true,...}`).
+> The local helper must be running for live streaming or AI analysis. From the project
+> root run `npm run bridge` once and leave that terminal open. **You do not need to
+> configure any local address** — the extension and feeder connect to the helper on
+> your own machine automatically. To verify it is healthy, run `npm run smoke` in a
+> separate terminal.
 
 ## Path A — live traffic with the Jython extension (recommended)
 
@@ -27,7 +29,8 @@ from https://www.jython.org/download.html, or run Burp with Java 11 and Jython 2
 4. Check **Extensions > Installed**: `VAPT Lens Bridge Feeder` should be listed with
    no errors (inspect the Errors tab under Details if not).
 5. With the bridge running, browse a target through the Proxy. Each request/response
-   is posted to `http://127.0.0.1:8787/api/burp/stream`.
+   is posted automatically to the local helper running on your own machine. No URL
+   setup is needed — the feeder's default endpoint already points there.
 
 ### CachyOS / Arch setup
 
@@ -52,8 +55,9 @@ If the extension errors with Java 25, install Java 11 (`yay -S jre11-openjdk`) a
 launch Burp with `app_java_home=/usr/lib/jvm/java-11-openjdk burpsuite` using Jython
 2.7.4 instead. On Wayland, use Xwayland for Burp if the UI renders incorrectly.
 
-If your bridge is not on `127.0.0.1:8787`, edit `BRIDGE_URL` in the `.py` file and reload
-the extension. The extension caps nothing — the bridge limits how many items it stores.
+Only if you intentionally changed the helper's port should you edit `BRIDGE_URL` in the
+`.py` file and reload the extension. Normally you can leave it untouched. The feeder
+caps nothing — the helper limits how many items it stores.
 
 ## Path B — export site map / proxy history as XML and paste it
 
@@ -100,8 +104,8 @@ As with XML, only metadata is used; any values present in the curl/HAR text are 
 
 | Symptom | Check |
 | --- | --- |
-| Bridge offline / CORS errors | Run `npm run bridge`, then `curl http://127.0.0.1:8787/api/health`. The bridge allows `chrome-extension://*`, `moz-extension://*`, `http://localhost:*`, `http://127.0.0.1:*`. |
+| Helper offline / CORS errors | Run `npm run bridge` and leave it open, then run `npm run smoke` to verify it. No address setup is needed; the extension connects to the helper on your own machine automatically. |
 | Extension fails to load | Python Environment must be a Jython **standalone JAR** compatible with your Burp Java version — use 2.7.5rc1 for Java 17/21/25. Not CPython, not the installer JAR. Reload after setting it. |
 | No live items arriving | Confirm the extension is enabled, the bridge is running, and traffic passes through Burp's Proxy (not just Repeater). Check Extender > Extensions > Errors. |
-| Port mismatch | The extension POSTs to `127.0.0.1:8787`. If you changed the bridge port, update `BRIDGE_URL` in `burp_to_bridge.py` and reload. |
+| Port mismatch | Leave the default port. If you intentionally changed the helper port, update `BRIDGE_URL` in `burp_to_bridge.py` and reload the Burp extension. |
 | Import shows zero items | Ensure you pasted raw XML/HAR/curl text, and that the file is not empty or binary. |
