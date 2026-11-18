@@ -85,6 +85,7 @@ const ui = {
   owasp: '',
   search: '',
   trafficLive: null,
+  trafficFindings: null,
   trafficTimer: null,
   notesTimer: null,
   siteScan: null,
@@ -722,44 +723,74 @@ function renderOwasp() {
   renderSiteFindings();
 }
 
+function mergeFindings(siteData, trafficData) {
+  const siteFindings = Array.isArray(siteData?.findings) ? siteData.findings : [];
+  const trafficFindings = Array.isArray(trafficData?.findings)
+    ? trafficData.findings.map((finding) => ({ ...finding, _origin: 'burp' }))
+    : [];
+  const seen = new Set();
+  const rank = { high: 0, medium: 1, low: 2 };
+
+  return [...siteFindings, ...trafficFindings]
+    .filter((finding) => {
+      if (!finding?.url || !finding?.point) return false;
+      const key = `${finding.owasp?.id || ''}\u0000${finding.url}\u0000${finding.point}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3));
+}
+
 function renderSiteFindings() {
   const root = $('#siteFindings');
   if (!root) return;
-  const data = ui.siteScan?.result?.findings;
-  if (!data) {
+  const siteData = ui.siteScan?.result?.findings || null;
+  const trafficData = ui.trafficFindings || null;
+
+  if (!siteData && !trafficData) {
     root.innerHTML = `
       <div class="vl-section-title">Possible vulnerabilities across the site</div>
       ${empty(
         'No whole-site findings yet',
-        'Click “Scan whole site” above. Findings are passive inferences from crawled pages, with the exact URL and location for manual verification.',
+        'Click “Scan whole site” above, or browse through Burp. Findings are passive inferences with the exact URL and location for manual verification.',
       )}
     `;
     return;
   }
 
-  const findings = Array.isArray(data.findings) ? data.findings : [];
-  const rows = findings.map((f) => [
-    `<span class="vl-owasp">${esc(f?.owasp?.id || '')} · ${esc(f?.owasp?.name || '')}</span>`,
-    `<strong>${esc(f.title || '')}</strong><br><span class="vl-subtle">${esc(f.possibleVulnerability || '')}</span>`,
-    `<span class="vl-sev sev-${esc(String(f.severity || 'low').toLowerCase())}">${esc(f.severity || 'low')}</span>`,
-    `<code>${esc(f.url || '')}</code>`,
-    `<code>${esc(f.point || '')}</code><br><span class="vl-subtle">${esc(f.evidence || '')}</span>`,
-    `<span class="vl-subtle">${esc(f.manualCheck || '')}</span>`,
-  ]);
+  const findings = mergeFindings(siteData, trafficData);
+  const urls = new Set(findings.map((f) => f.url));
+  const burpCount = Array.isArray(trafficData?.findings) ? trafficData.findings.length : 0;
+  const rows = findings.map((f) => {
+    const isBurp = f._origin === 'burp' || String(f.source || '').startsWith('burp');
+    return [
+      `<span class="vl-owasp">${esc(f?.owasp?.id || '')} · ${esc(f?.owasp?.name || '')}${isBurp ? ' <span class="vl-subtle">[Burp]</span>' : ''}</span>`,
+      `<strong>${esc(f.title || '')}</strong><br><span class="vl-subtle">${esc(f.possibleVulnerability || '')}</span>`,
+      `<span class="vl-sev sev-${esc(String(f.severity || 'low').toLowerCase())}">${esc(f.severity || 'low')}</span>`,
+      `<code>${esc(f.url || '')}</code>`,
+      `<code>${esc(f.point || '')}</code><br><span class="vl-subtle">${esc(f.evidence || '')}</span>`,
+      `<span class="vl-subtle">${esc(f.manualCheck || '')}</span>`,
+    ];
+  });
 
   const spaRoutes = Number(ui.siteScan?.result?.stats?.jsRoutesDiscovered || 0);
   const spaNote = spaRoutes
     ? `<p class="vl-hint">SPA detected: ${spaRoutes} routes were recovered from same-host JavaScript bundles. Forms and inputs created by JavaScript are not visible to this passive crawler — use “Scan page” on that rendered page or Burp traffic for those checks.</p>`
     : '';
+  const trafficNote = burpCount
+    ? `<p class="vl-hint">Captured Burp traffic produced ${burpCount} passive OWASP observation${burpCount === 1 ? '' : 's'}. Each row shows the exact request URL and endpoint/parameter location — verify manually in Burp Repeater.</p>`
+    : '';
 
   root.innerHTML = `
     <div class="vl-section-title">Possible vulnerabilities across the site
-      <span class="vl-subtle">${Number(data.summary?.total || findings.length)} possible · ${Number(data.summary?.pagesCovered || 0)} pages</span>
+      <span class="vl-subtle">${findings.length} possible · ${urls.size} URLs${burpCount ? ` · ${burpCount} from Burp traffic` : ''}</span>
     </div>
-    <p class="vl-subtle">${esc(data.scope || 'Passive inference only — verify manually. No payloads are sent by this tool.')}</p>
+    <p class="vl-subtle">${esc(siteData?.scope || trafficData?.scope || 'Passive inference only — verify manually. No payloads are sent by this tool.')}</p>
     ${spaNote}
+    ${trafficNote}
     ${locTable(['OWASP', 'Possible vulnerability', 'Severity', 'Exact URL', 'Exact point / evidence', 'Manual check'], rows,
-      'No likely issues found', 'The crawled pages produced no passive OWASP findings. Guided tests below still apply.')}
+      'No likely issues found', 'No passive OWASP observation was produced yet. Guided tests below still apply.')}
   `;
 }
 
@@ -992,6 +1023,15 @@ async function pollTraffic() {
     renderTraffic();
   } else {
     ui.trafficLive = false;
+  }
+
+  if (host) {
+    try {
+      ui.trafficFindings = await bridgeFetch(`/api/burp/findings?host=${encodeURIComponent(host)}`);
+    } catch {
+      ui.trafficFindings = null;
+    }
+    renderSiteFindings();
   }
   renderBadges();
 }
