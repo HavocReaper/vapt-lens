@@ -14,7 +14,7 @@ import {
 } from './lib/burp.mjs';
 import { analyze, OWASP_CATEGORIES } from './lib/analyze.mjs';
 import { crawlSite } from './lib/crawl.mjs';
-import { buildSiteFindings } from './lib/site-findings.mjs';
+import { buildSiteFindings, buildTrafficFindings } from './lib/site-findings.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -315,6 +315,18 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'GET' && route === '/api/burp/summary') {
       json(res, 200, getTrafficSummary(u.searchParams.get('host') || ''));
+      return;
+    }
+
+    if (method === 'GET' && route === '/api/burp/findings') {
+      const host = u.searchParams.get('host') || '';
+      const items = getTraffic(host);
+      json(res, 200, {
+        ok: true,
+        host: items[0]?.host || normalizeHost(host),
+        trafficCount: items.length,
+        ...buildTrafficFindings(items),
+      });
       return;
     }
 
