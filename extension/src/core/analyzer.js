@@ -6,6 +6,8 @@
  * strings, how to verify, and a defence reminder.
  */
 
+import { findPlaybook, payloadsFor } from './playbooks.js';
+
 const SCOPE_REMINDER =
   'Scope reminder: guidance only, no attacks are performed — confirm you are authorized and test only systems you own.';
 
@@ -295,7 +297,7 @@ function buildSteps(skill, category) {
   return steps.slice(0, 6);
 }
 
-function buildPayloads(skill) {
+function buildPayloads(skill, category = '', skillId = '') {
   const blocks = [];
   for (const section of skill?.sections ?? []) {
     if (isDefensive(section?.heading)) continue;
@@ -311,10 +313,20 @@ function buildPayloads(skill) {
       blocks.push(firstLine);
     }
   }
-  return dedupeStrings(blocks).slice(0, 3).map((value, index) => ({
-    label: `Safe test string ${index + 1}`,
-    value,
-  }));
+
+  // Curated, non-destructive probes fill the card when the skill has no safe
+  // first-line example. The full technique list lives in the Payloads tab.
+  const curated = payloadsFor(category, skillId || skill?.id || '', 3)
+    .map((p) => `PLAYBOOK:${p.label}:${p.value}`);
+  const merged = dedupeStrings([...blocks, ...curated]).slice(0, 3);
+
+  return merged.map((entry, index) => {
+    if (entry.startsWith('PLAYBOOK:')) {
+      const [, label, ...rest] = entry.split(':');
+      return { label: `Playbook · ${label}`, value: rest.join(':') };
+    }
+    return { label: `Safe test string ${index + 1}`, value: entry };
+  });
 }
 
 function dedupeStrings(values) {
@@ -428,7 +440,8 @@ export function buildLocalCards({ observation = {}, traffic = [], kb = {}, maxCa
         severityHint: severityFor(category),
         whyHere,
         steps: buildSteps(skill, category),
-        payloads: buildPayloads(skill),
+        payloads: buildPayloads(skill, category, skill.id ?? skillId),
+        playbookId: findPlaybook(category, skill.id ?? skillId)?.id || '',
         verify: verifyFor(category),
         defense: findDefense(skill),
         owasp: mapOwasp(category, skill.id ?? skillId),
