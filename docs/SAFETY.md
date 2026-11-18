@@ -24,8 +24,14 @@ finding applies.
   passively reads same-host JavaScript bundles for SPA route names (without executing
   JavaScript), skips links whose names suggest destructive actions (logout, delete,
   reset, checkout, etc.), and **never submits forms**. Progress is shown in the panel.
-- Cards describe manual steps to try yourself in Burp or the browser. Any "payloads"
-  shown are copyable safe test strings for you to use, not requests the tool executes.
+- Cards and the **Payloads** tab describe manual steps to try yourself in Burp or the
+  browser. Any "payloads" shown are short, curated, non-destructive test strings for you
+  to copy — never requests the tool executes. They deliberately exclude destructive SQL,
+  webshells, reverse shells, credential stuffing and bulk automation.
+- The Payloads library is hidden until you tick the authorization acknowledgment, and
+  grouped by attack class (SQLi, LFI, XSS, command injection, SSTI, SSRF, XXE, IDOR,
+  auth, upload, redirect, GraphQL and more). You remain responsible for every request
+  you choose to send.
 - Findings from the site scan and from captured Burp traffic are hints, not proof. Each
   one is tied to an **exact URL and point** (such as a parameter name or header) so you
   can verify it manually in the browser or Burp Repeater, then report responsibly.
