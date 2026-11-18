@@ -363,6 +363,13 @@ h3 { font-size: 13.5px; }
 
 .test-card { padding: 12px 13px; }
 
+.vl-playbook { padding: 13px; margin-bottom: 10px; }
+.vl-techniques { margin: 4px 0 10px; }
+.vl-techniques .vl-subtle { display: block; margin-bottom: 4px; }
+.vl-techniques .vl-steps li strong { color: var(--vl-green); }
+.vl-playbook-link { margin-top: 8px; }
+.vl-btn.vl-small { padding: 5px 9px; font-size: 10.5px; }
+
 .vl-card-head {
   display: flex;
   align-items: start;
