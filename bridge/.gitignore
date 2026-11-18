@@ -1,0 +1,5 @@
+# Local runtime configuration (created on first start)
+config.json
+
+# Generated knowledge base (built by scripts/build-kb.mjs)
+data/knowledge-base.json

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VAPT Lens — guided VAPT assistant</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header class="vl-header">
+    <div class="vl-brand">
+      <span class="vl-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="10.2" cy="10.2" r="8" stroke="#b18cff" stroke-opacity="0.75" stroke-width="1.1" stroke-dasharray="6 4" transform="rotate(-30 10.2 10.2)"/>
+          <circle cx="10.2" cy="10.2" r="6.2" fill="rgba(124,196,255,0.12)" stroke="currentColor" stroke-width="1.7"/>
+          <g stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+            <path d="M10.2 6.5v1.8M10.2 12.1v1.8M6.5 10.2h1.8M12.1 10.2h1.8"/>
+          </g>
+          <circle cx="10.2" cy="10.2" r="1.5" fill="#67e8f9"/>
+          <path d="m14.8 14.8 5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="m15.9 15.9 3.2 3.2" stroke="#a78bfa" stroke-width="0.9" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <div>
+        <h1>VAPT Lens</h1>
+        <p class="vl-subtle">Guided testing · read-only</p>
+      </div>
+    </div>
+    <div class="vl-target" title="Target host derived from the active tab">
+      <span class="vl-subtle">Target</span>
+      <strong id="targetHost">—</strong>
+    </div>
+    <div class="vl-badges" aria-label="Status badges">
+      <span id="aiBadge" class="vl-badge">AI: on</span>
+      <span id="trafficBadge" class="vl-badge">Traffic: offline</span>
+    </div>
+  </header>
+
+  <section class="vl-controls" aria-label="Scan controls">
+    <label class="vl-check">
+      <input type="checkbox" id="authorized">
+      <span>I'm authorized to test this target</span>
+    </label>
+    <div class="vl-actions">
+      <label class="vl-check vl-check-mini" title="Ask the local bridge for optional AI hints">
+        <input type="checkbox" id="aiToggle">
+        <span>AI hints</span>
+      </label>
+      <button type="button" id="scanBtn" class="vl-btn vl-primary">Scan page</button>
+      <button type="button" id="crawlBtn" class="vl-btn">Crawl site</button>
+      <button type="button" id="siteScanBtn" class="vl-btn vl-accent">Scan whole site</button>
+      <span id="scanStatus" class="vl-subtle" role="status"></span>
+      <span id="crawlStatus" class="vl-subtle" role="status"></span>
+    </div>
+  </section>
+
+  <div id="siteScanBar" class="vl-scanbar vl-hidden" role="status" aria-live="polite">
+    <div class="vl-scanbar-head">
+      <strong id="siteScanLabel">Whole-site scan</strong>
+      <span id="siteScanPercent" class="vl-subtle">0%</span>
+    </div>
+    <div class="vl-scanbar-track"><div id="siteScanFill" class="vl-scanbar-fill"></div></div>
+    <div id="siteScanDetail" class="vl-subtle">Queued…</div>
+  </div>
+
+  <div id="bridgeBanner" class="vl-banner vl-hidden" role="status"></div>
+
+  <div class="vl-safety" role="note">
+    <strong>Guidance only — no attacks performed.</strong>
+    VAPT Lens only observes page structure and suggests manual tests you run yourself in Burp or your browser.
+    It never sends payloads, attacks, logins, or form values. Test only systems you own or are explicitly authorized to test.
+  </div>
+
+  <nav class="vl-tabs" role="tablist" aria-label="VAPT Lens sections">
+    <button type="button" role="tab" class="vl-tab is-active" data-tab="overview" aria-selected="true">Overview</button>
+    <button type="button" role="tab" class="vl-tab" data-tab="surface" aria-selected="false">Attack surface</button>
+    <button type="button" role="tab" class="vl-tab" data-tab="sitemap" aria-selected="false">Site map</button>
+    <button type="button" role="tab" class="vl-tab" data-tab="checks" aria-selected="false">Security checks</button>
+    <button type="button" role="tab" class="vl-tab" data-tab="owasp" aria-selected="false">OWASP Top 10</button>
+    <button type="button" role="tab" class="vl-tab" data-tab="tests" aria-selected="false">Guided tests</button>
+    <button type="button" role="tab" class="vl-tab" data-tab="traffic" aria-selected="false">Burp traffic</button>
+    <button type="button" role="tab" class="vl-tab" data-tab="notes" aria-selected="false">Notes</button>
+  </nav>
+
+  <main class="vl-main">
+    <section class="vl-panel is-active" data-panel="overview" role="tabpanel">
+      <div id="overviewContent"></div>
+    </section>
+
+    <section class="vl-panel" data-panel="surface" role="tabpanel" hidden>
+      <div id="surfaceContent"></div>
+    </section>
+
+    <section class="vl-panel" data-panel="sitemap" role="tabpanel" hidden>
+      <div id="sitemapContent"></div>
+    </section>
+
+    <section class="vl-panel" data-panel="checks" role="tabpanel" hidden>
+      <div id="checksContent"></div>
+    </section>
+
+    <section class="vl-panel" data-panel="owasp" role="tabpanel" hidden>
+      <div id="owaspContent"></div>
+    </section>
+
+    <section class="vl-panel" data-panel="tests" role="tabpanel" hidden>
+      <div class="vl-toolbar">
+        <label class="vl-field">
+          <span class="vl-subtle">OWASP</span>
+          <select id="owaspFilter"><option value="">All OWASP categories</option></select>
+        </label>
+        <label class="vl-field">
+          <span class="vl-subtle">Category</span>
+          <select id="categoryFilter"><option value="">All categories</option></select>
+        </label>
+        <label class="vl-field vl-grow">
+          <span class="vl-subtle">Search</span>
+          <input id="searchTests" type="search" placeholder="Search tests, skills, verify steps…" autocomplete="off">
+        </label>
+        <span id="cardCount" class="vl-subtle vl-count"></span>
+      </div>
+      <div id="authGate" class="vl-gate vl-hidden"></div>
+      <div id="cards"></div>
+    </section>
+
+    <section class="vl-panel" data-panel="traffic" role="tabpanel" hidden>
+      <p class="vl-hint">Paste Burp XML, a HAR file, curl commands, or a list of URLs. Traffic is sent only to the local bridge and is parsed for paths and parameter names — never values.</p>
+      <textarea id="burpRaw" class="vl-textarea" rows="6" spellcheck="false"
+                placeholder="Paste Burp project XML / HAR / curl / URLs here…"></textarea>
+      <div class="vl-row">
+        <button type="button" id="importBtn" class="vl-btn">Import traffic</button>
+        <span id="importStatus" class="vl-subtle" role="status"></span>
+      </div>
+      <div id="trafficContent"></div>
+    </section>
+
+    <section class="vl-panel" data-panel="notes" role="tabpanel" hidden>
+      <p class="vl-hint">Notes are stored locally in this browser, keyed by target host. They are never sent to the bridge.</p>
+      <textarea id="notes" class="vl-textarea vl-notes" rows="12"
+                placeholder="Record what you tested, what you observed, and follow-up ideas…"></textarea>
+      <div class="vl-row">
+        <button type="button" id="exportBtn" class="vl-btn">Export Markdown</button>
+        <span id="notesStatus" class="vl-subtle" role="status"></span>
+      </div>
+    </section>
+  </main>
+
+  <footer class="vl-footer">
+    Read-only by design · Local bridge only · <span id="bridgeState">checking…</span>
+  </footer>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>

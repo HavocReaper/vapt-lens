@@ -1,0 +1,39 @@
+{
+  "name": "vapt-lens",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Guided, read-only VAPT assistant: browser extension + local bridge, powered by local offensive-skill knowledge and optional AI.",
+  "license": "MIT",
+  "author": "HavocReaper",
+  "homepage": "https://github.com/HavocReaper/vapt-lens#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HavocReaper/vapt-lens.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HavocReaper/vapt-lens/issues"
+  },
+  "keywords": [
+    "security",
+    "vapt",
+    "penetration-testing",
+    "owasp",
+    "burp-suite",
+    "browser-extension",
+    "chrome-extension",
+    "firefox-extension",
+    "red-team"
+  ],
+  "scripts": {
+    "kb": "node scripts/build-kb.mjs",
+    "build": "node scripts/build-kb.mjs && node scripts/build-extensions.mjs",
+    "bridge": "node bridge/server.mjs",
+    "dev": "node scripts/build-kb.mjs && node bridge/server.mjs",
+    "test": "node --test test/*.test.mjs bridge/test/*.test.mjs extension/test/*.test.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

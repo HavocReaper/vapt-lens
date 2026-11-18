@@ -1,0 +1,7 @@
+{
+  "_doc": "Copy to config.json to customise the bridge. AI is enabled by default; aiEnabled gates the optional opencode AI layer, model is informational, port is used only when the PORT environment variable is not set, and burpLive enables passive Burp/live traffic intake. Runtime changes are made via POST /api/config.",
+  "aiEnabled": true,
+  "model": null,
+  "port": 8787,
+  "burpLive": true
+}

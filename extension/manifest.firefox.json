@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "VAPT Lens",
+  "version": "0.1.1",
+  "description": "Guided, read-only VAPT assistant. Guidance only — no attacks performed. Test only systems you own or are authorized to test.",
+  "background": {
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "sidebar_action": {
+    "default_panel": "panel.html",
+    "default_title": "VAPT Lens — guided testing only",
+    "default_icon": "icons/icon-neon.svg"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "vapt-lens@local",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs",
+    "cookies",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content.css", "icons/*", "src/core/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon-neon.svg",
+    "32": "icons/icon-neon.svg",
+    "48": "icons/icon-neon.svg",
+    "128": "icons/icon-neon.svg"
+  }
+}

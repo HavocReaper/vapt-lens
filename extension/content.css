@@ -1,0 +1,110 @@
+/* VAPT Lens — overlay styles. Loaded into a closed Shadow DOM host only. */
+/* Never targets page elements: no selectors outside this shadow root. */
+
+:host {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2147483647;
+  pointer-events: none; /* only the orb itself accepts pointer events */
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.35;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.vl-orb {
+  pointer-events: auto;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(124, 196, 255, 0.55);
+  background: radial-gradient(circle at 35% 28%, #1d3a5e 0%, #0e1b2f 62%, #080f1c 100%);
+  color: #e8f1ff;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.38), 0 0 0 4px rgba(124, 196, 255, 0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.vl-orb:hover,
+.vl-orb:focus-visible {
+  transform: translateY(-2px) scale(1.04);
+  box-shadow: 0 9px 22px rgba(0, 0, 0, 0.45), 0 0 0 6px rgba(124, 196, 255, 0.14);
+}
+
+.vl-orb:focus-visible {
+  outline: 2px solid #9ad4ff;
+  outline-offset: 2px;
+}
+
+.vl-orb:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.vl-orb svg {
+  width: 23px;
+  height: 23px;
+  display: block;
+}
+
+.vl-orb-tip {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 10px);
+  transform: translateY(-50%) translateX(4px);
+  white-space: nowrap;
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid rgba(124, 196, 255, 0.28);
+  background: rgba(9, 16, 29, 0.96);
+  color: #dce8f7;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.vl-orb:hover .vl-orb-tip,
+.vl-orb:focus-visible .vl-orb-tip {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+.vl-toast {
+  position: absolute;
+  right: calc(100% + 10px);
+  bottom: 4px;
+  max-width: 250px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(124, 196, 255, 0.28);
+  background: rgba(9, 16, 29, 0.96);
+  color: #dce8f7;
+  font-size: 11.5px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transform: translateY(5px);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.vl-toast.vl-show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vl-orb,
+  .vl-orb-tip,
+  .vl-toast {
+    transition: none;
+  }
+}
