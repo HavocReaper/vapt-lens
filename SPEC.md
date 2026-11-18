@@ -30,6 +30,7 @@ extension/                   source (not loaded directly)
   icons/icon.svg
   src/core/scanner.js        pure DOM observation builder
   src/core/analyzer.js       maps observations -> local guidance cards (offline fallback)
+  src/core/playbooks.js      curated copy-only payload/technique library for the Payloads tab
   src/core/messages.js       message type constants + tiny browser API wrapper
 burp/burp_to_bridge.py       optional Jython Burp Community extension -> POSTs traffic to bridge
 docs/BURP.md, docs/SAFETY.md
@@ -90,7 +91,7 @@ Rules for scanner:
 { summary: { tech: [string], surface: object, riskHints: [string] },
   cards: [{
     id, category, title, severityHint, whyHere, steps: [string],
-    payloads: [{ label, value }], verify, defense, skillId, source: 'local'|'ai'
+    payloads: [{ label, value }], playbookId, verify, defense, skillId, source: 'local'|'ai'
   }],
   aiUsed: boolean, generatedAt: string, warnings: [string] }
 ```
