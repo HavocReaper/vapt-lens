@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildSiteFindings,
+  buildTrafficFindings,
   OWASP_SCAN_CATEGORIES,
   EMPTY_OWASP_COUNTS,
 } from '../lib/site-findings.mjs';
@@ -272,6 +273,132 @@ test('buildSiteFindings prioritizes high-severity findings within the cap', () =
   pages[99].queryParams = [{ name: 'id', valueLength: 2, location: 'query' }];
 
   const result = buildSiteFindings({ host: 'priority.example.test', pages });
+  assert.equal(result.findings.length, 80);
+  assert.equal(result.findings[0].severity, 'high');
+  assert.equal(result.findings[0].owasp.id, 'A01');
+  assert.ok(!result.findings.some((f) => f.severity === 'low' && f.url.includes('/p/0')));
+});
+
+function trafficItems() {
+  return [
+    {
+      method: 'GET',
+      url: 'http://traffic.example.test/login?id=SECRET&debug=SECRET',
+      path: '/login',
+      host: 'traffic.example.test',
+      queryParams: ['id', 'debug'],
+      bodyParams: [],
+      headers: [{ name: 'server', value: '' }],
+      status: 200,
+      source: 'live',
+    },
+    {
+      method: 'POST',
+      url: 'https://traffic.example.test/api/items?id=SECRET&q=SECRET&sort=SECRET',
+      path: '/api/items',
+      host: 'traffic.example.test',
+      queryParams: ['id', 'q', 'sort'],
+      bodyParams: ['url', 'role'],
+      headers: [{ name: 'content-security-policy', value: '' }],
+      status: 200,
+      source: 'live',
+    },
+    {
+      method: 'POST',
+      url: 'https://traffic.example.test/admin/users',
+      path: '/admin/users',
+      host: 'traffic.example.test',
+      queryParams: [],
+      bodyParams: ['userid', 'csrf-token'],
+      headers: [],
+      status: null,
+      source: 'live',
+    },
+  ];
+}
+
+test('buildTrafficFindings maps captured request metadata to exact OWASP locations', () => {
+  const result = buildTrafficFindings(trafficItems());
+  const find = (owaspId, point) =>
+    result.findings.find((f) => f.owasp.id === owaspId && f.point === point);
+
+  assert.ok(result.findings.length > 0);
+  assert.equal(result.summary.total, result.findings.length);
+  assert.equal(
+    result.summary.high + result.summary.medium + result.summary.low,
+    result.summary.total,
+  );
+  for (const finding of result.findings) {
+    assert.deepEqual(Object.keys(finding).sort(), [...FINDING_KEYS].sort());
+    assert.ok(finding.url.startsWith('http'));
+    assert.ok(finding.point.includes('Burp traffic'));
+    assert.ok(String(finding.source).startsWith('burp'));
+    assert.match(finding.possibleVulnerability, /may|could|possible|might/i);
+  }
+
+  assert.ok(find('A01', 'captured GET /login -> query parameter "id" (Burp traffic)'));
+  assert.ok(find('A01', 'captured POST /api/items -> query parameter "id" (Burp traffic)'));
+  assert.ok(find('A01', 'captured POST /admin/users (Burp traffic)'));
+  assert.ok(find('A02', 'captured GET /login -> request URL uses http:// (Burp traffic)'));
+  assert.ok(find('A02', 'captured GET /login -> response header Content-Security-Policy (Burp traffic)'));
+  assert.ok(find('A03', 'captured POST /api/items -> query parameter "sort" (Burp traffic)'));
+  assert.ok(find('A04', 'captured GET /login -> query parameter "debug" (Burp traffic)'));
+  assert.ok(find('A10', 'captured POST /api/items -> body parameter "url" (Burp traffic)'));
+
+  const idor = find('A01', 'captured POST /api/items -> query parameter "id" (Burp traffic)');
+  assert.equal(idor.url, 'https://traffic.example.test/api/items?id&q&sort');
+  assert.equal(result.byOwasp.A09, 0);
+  assert.ok(!result.findings.some((f) => f.owasp.id === 'A09'));
+  assert.match(result.scope, /^Passive inference only from captured Burp traffic metadata/);
+  assert.ok(!JSON.stringify(result).includes('SECRET'), 'traffic values must never be emitted');
+});
+
+test('buildTrafficFindings dedupes request/response pairs and tolerates malformed items', () => {
+  const item = {
+    method: 'POST',
+    url: 'https://dup-traffic.example.test/api/items?search',
+    path: '/api/items',
+    queryParams: ['search'],
+    bodyParams: [],
+    headers: [{ name: 'server', value: '' }],
+    status: 200,
+    source: 'live',
+  };
+  const result = buildTrafficFindings([
+    item,
+    { ...item, status: null },
+    null,
+    42,
+    'noise',
+    { method: '', url: '' },
+  ]);
+
+  const points = result.findings.map((f) => f.point);
+  const searchPoints = points.filter((p) => p.includes('query parameter "search"'));
+  assert.equal(searchPoints.length, 1, 'duplicate request metadata collapses to one finding');
+  assert.equal(result.findings.filter((f) => f.owasp.id === 'A05').length, 1, 'response-only header check is not duplicated');
+
+  for (const input of [undefined, {}, null, 'not-an-object', [null, 42]]) {
+    const empty = buildTrafficFindings(input);
+    assert.deepEqual(empty.byOwasp, EMPTY_OWASP_COUNTS());
+    assert.deepEqual(empty.summary, { total: 0, high: 0, medium: 0, low: 0, pagesCovered: 0 });
+    assert.deepEqual(empty.findings, []);
+  }
+});
+
+test('buildTrafficFindings keeps high-severity observations within the 80-finding cap', () => {
+  const items = Array.from({ length: 100 }, (_, i) => ({
+    method: 'POST',
+    url: `https://cap-traffic.example.test/p/${i}`,
+    path: `/p/${i}`,
+    bodyParams: ['role'],
+    headers: [{ name: 'server', value: '' }],
+    status: 200,
+    source: 'live',
+  }));
+  items[99].queryParams = ['id'];
+
+  const result = buildTrafficFindings(items);
   assert.equal(result.findings.length, 80);
   assert.equal(result.findings[0].severity, 'high');
   assert.equal(result.findings[0].owasp.id, 'A01');
