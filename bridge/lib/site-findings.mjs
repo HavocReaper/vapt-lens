@@ -34,6 +34,9 @@ const OWASP_KIND = {
 const SCOPE_TEXT =
   'Passive inference only from existing crawl metadata; no active testing performed, manual verification required.';
 
+const TRAFFIC_SCOPE_TEXT =
+  'Passive inference only from captured Burp traffic metadata; no active testing performed, manual verification required.';
+
 const ID_PARAM_NAMES = new Set(['id', 'userid', 'account', 'uuid', 'guid', 'orderid']);
 const SEARCH_PARAM_NAMES = new Set(['q', 'search', 'query', 'keyword', 'term']);
 const ORDER_PARAM_NAMES = new Set(['sort', 'order', 'filter', 'column']);
@@ -250,6 +253,33 @@ function addFinding(ctx, spec) {
     manualCheck: clean(manualCheck, 400),
     source,
   });
+}
+
+/* ------------------------------------------------------------------ finalize */
+
+/** Sort high-severity findings first, dedupe already done by addFinding, cap output. */
+function finalizeFindings(ctx, scope) {
+  const severityRank = { high: 0, medium: 1, low: 2 };
+  const findings = ctx.findings
+    .map((finding, index) => ({ finding, index }))
+    .sort((a, b) =>
+      (severityRank[a.finding.severity] ?? 3) - (severityRank[b.finding.severity] ?? 3) || a.index - b.index,
+    )
+    .map(({ finding }) => finding)
+    .slice(0, MAX_FINDINGS);
+  const byOwasp = EMPTY_OWASP_COUNTS();
+  const summary = { total: 0, high: 0, medium: 0, low: 0, pagesCovered: 0 };
+  const covered = new Set();
+
+  for (const finding of findings) {
+    if (byOwasp[finding.owasp.id] !== undefined) byOwasp[finding.owasp.id] += 1;
+    if (summary[finding.severity] !== undefined) summary[finding.severity] += 1;
+    covered.add(finding.url);
+  }
+  summary.total = findings.length;
+  summary.pagesCovered = covered.size;
+
+  return { findings, byOwasp, summary, scope };
 }
 
 /* --------------------------------------------------------------------- main */
@@ -722,29 +752,348 @@ export function buildSiteFindings(crawl = {}) {
     }
   }
 
-  // Keep the most actionable findings when the cap is reached on large sites.
-  // Stable sort preserves crawl order within a severity band.
-  const severityRank = { high: 0, medium: 1, low: 2 };
-  const findings = ctx.findings
-    .map((finding, index) => ({ finding, index }))
-    .sort((a, b) =>
-      (severityRank[a.finding.severity] ?? 3) - (severityRank[b.finding.severity] ?? 3) || a.index - b.index,
-    )
-    .map(({ finding }) => finding)
-    .slice(0, MAX_FINDINGS);
-  const byOwasp = EMPTY_OWASP_COUNTS();
-  const summary = { total: 0, high: 0, medium: 0, low: 0, pagesCovered: 0 };
-  const covered = new Set();
+  return finalizeFindings(ctx, SCOPE_TEXT);
+}
 
-  for (const finding of findings) {
-    if (byOwasp[finding.owasp.id] !== undefined) byOwasp[finding.owasp.id] += 1;
-    if (summary[finding.severity] !== undefined) summary[finding.severity] += 1;
-    covered.add(finding.url);
+/* ------------------------------------------------------------ Burp traffic */
+
+const AUTH_PATH_RE = /(?:^|\/)(?:login|signin|sign-in|auth|oauth|register|signup|forgot|reset)(?:\/|$)/i;
+const ADMIN_PATH_RE = /(?:\/admin\/|\/api\/users?\/|\/users\/\d|\/administration\/)/i;
+const FETCH_PATH_RE = /(?:\/fetch|\/proxy|\/download|\/webhook|\/import)(?:\/|$)/i;
+const CSRF_PARAM_NAMES = new Set(['csrf', 'csrfmiddlewaretoken', 'xsrf', 'xsrf-token', 'authenticity_token', 'token']);
+const PASSWORD_PARAM_NAMES = new Set(['password', 'pass', 'pwd', 'passwd']);
+const STATE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function paramNames(value) {
+  return asArray(value)
+    .map((item) => {
+      if (typeof item === 'string') return clean(item, 128);
+      if (item && typeof item === 'object') return clean(item.name ?? '', 128);
+      return '';
+    })
+    .filter(Boolean);
+}
+
+/** Exact safe request URL: path plus query parameter NAMES only. */
+function trafficUrl(item) {
+  const base = safeUrl(item?.url || item?.path || '');
+  const names = [...new Set([...queryNames(item?.url || ''), ...paramNames(item?.queryParams)])];
+  const withoutQuery = base.split('?')[0];
+  return clean(names.length ? `${withoutQuery}?${names.join('&')}` : withoutQuery, URL_LIMIT);
+}
+
+function trafficStatus(item) {
+  const raw = item?.status;
+  if (raw === null || raw === undefined || raw === '') return null;
+  const parsed = Number.parseInt(String(raw).replace(/,/g, ''), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function requestMethod(item) {
+  return clean(item?.method || 'GET', 16).toUpperCase() || 'GET';
+}
+
+function endpointPoint(item, suffix = '') {
+  const method = requestMethod(item);
+  const path = clean(item?.path || pathOf(item?.url || '') || '/', 512);
+  return `captured ${method} ${path}${suffix ? ` -> ${suffix}` : ''} (Burp traffic)`;
+}
+
+function paramPoint(item, where, name) {
+  return endpointPoint(item, `${where} parameter "${name}"`);
+}
+
+/**
+ * Turn captured Burp traffic metadata into passive OWASP observations.
+ *
+ * Only names and structural metadata are used: no values, bodies, cookies or
+ * auth headers. Both request and response proxy events may be supplied; the
+ * dedupe key in addFinding collapses identical observations.
+ */
+export function buildTrafficFindings(items = []) {
+  const list = asArray(items).filter((item) => item && typeof item === 'object');
+  const ctx = { findings: [], seen: new Set(), counters: new Map() };
+
+  for (let itemIndex = 0; itemIndex < list.length; itemIndex += 1) {
+    const item = list[itemIndex];
+    const url = trafficUrl(item);
+    if (!url) continue;
+
+    const method = requestMethod(item);
+    const path = clean(item?.path || pathOf(item?.url || '') || '/', 512);
+    const status = trafficStatus(item);
+    const isResponse = status !== null;
+    const queryParams = paramNames(item?.queryParams).length
+      ? paramNames(item?.queryParams)
+      : queryNames(item?.url || '');
+    const bodyParams = paramNames(item?.bodyParams);
+    const allParams = [...new Set([...queryParams, ...bodyParams])].map((name) => name.toLowerCase());
+    const headers = headerMap(item?.headers);
+    const hasHeaders = Array.isArray(item?.headers) && item.headers.length > 0;
+    const hasCsrfParam = allParams.some((name) => CSRF_PARAM_NAMES.has(name));
+    const hasCsrfHeader = headers.has('csrf-token') || headers.has('x-csrf-token') || headers.has('x-xsrf-token');
+
+    const add = (spec) => {
+      const { owasp, ...rest } = spec;
+      return addFinding(ctx, {
+        ...rest,
+        owaspId: owasp,
+        pageIndex: itemIndex,
+        url,
+        kind: OWASP_KIND[owasp] || 'check',
+      });
+    };
+
+    /* A01 — Broken Access Control */
+    for (const name of queryParams) {
+      if (!ID_PARAM_NAMES.has(name.toLowerCase())) continue;
+      add({
+        owasp: 'A01',
+        severity: 'high',
+        title: 'Object identifier in captured request',
+        possibleVulnerability: 'An object identifier was observed in a query parameter and may be enumerable (possible IDOR).',
+        point: paramPoint(item, 'query', name),
+        evidence: 'query parameter name matches an object-identifier pattern; value not retained',
+        manualCheck: 'In Burp Repeater, keep the session constant and change only this identifier to confirm whether another object is returned.',
+        source: 'burp-query',
+      });
+    }
+    for (const name of bodyParams) {
+      if (!ID_PARAM_NAMES.has(name.toLowerCase())) continue;
+      add({
+        owasp: 'A01',
+        severity: 'high',
+        title: 'Object identifier in captured body',
+        possibleVulnerability: 'An object identifier was observed in a request body parameter and may be enumerable (possible IDOR).',
+        point: paramPoint(item, 'body', name),
+        evidence: 'body parameter name matches an object-identifier pattern; value not retained',
+        manualCheck: 'In Burp Repeater, keep the session constant and change only this identifier to confirm whether another object is returned.',
+        source: 'burp-body',
+      });
+    }
+    if (ADMIN_PATH_RE.test(path)) {
+      add({
+        owasp: 'A01',
+        severity: 'high',
+        title: 'Administrative or user endpoint in traffic',
+        possibleVulnerability: 'An administrative or user endpoint was captured and may be reachable without authorization.',
+        point: endpointPoint(item),
+        evidence: 'captured path matches an admin or user route pattern',
+        manualCheck: 'In Burp Repeater, repeat this request with a low-privilege session and confirm that the server denies access.',
+        source: 'burp-endpoint',
+      });
+    }
+
+    /* A02 — Cryptographic Failures */
+    if (/^http:\/\//i.test(url) && AUTH_PATH_RE.test(path)) {
+      add({
+        owasp: 'A02',
+        severity: 'high',
+        title: 'Authentication endpoint over HTTP',
+        possibleVulnerability: 'An authentication-related endpoint was captured over http://, so credentials may traverse an unencrypted channel.',
+        point: endpointPoint(item, 'request URL uses http://'),
+        evidence: 'captured URL scheme is http and path matches an authentication endpoint',
+        manualCheck: 'In Burp Proxy, confirm whether this endpoint redirects to HTTPS and never accepts credentials over HTTP.',
+        source: 'burp-signal',
+      });
+    }
+    if (isResponse && hasHeaders) {
+      const missing = [
+        ['content-security-policy', 'Content-Security-Policy', 'medium', 'may leave the page exposed to content injection'],
+        ['strict-transport-security', 'Strict-Transport-Security', 'medium', 'so HTTPS enforcement may be incomplete'],
+        ['referrer-policy', 'Referrer-Policy', 'low', 'which may allow unnecessary referrer disclosure'],
+      ];
+      for (const [name, display, severity, impact] of missing) {
+        if (headers.has(name)) continue;
+        add({
+          owasp: 'A02',
+          severity,
+          title: `${display} not observed in traffic`,
+          possibleVulnerability: `No ${display} header was captured on this response, ${impact}.`,
+          point: endpointPoint(item, `response header ${display}`),
+          evidence: 'header absent from captured response header names',
+          manualCheck: 'In Burp Repeater, inspect the response headers and confirm whether the header is applied consistently.',
+          source: 'burp-header',
+        });
+      }
+    }
+
+    /* A03 — Injection */
+    for (const name of queryParams) {
+      const lower = name.toLowerCase();
+      if (SEARCH_PARAM_NAMES.has(lower)) {
+        add({
+          owasp: 'A03',
+          severity: 'medium',
+          title: 'Search-like parameter in captured query',
+          possibleVulnerability: 'A search-like parameter may be reflected or used in a query (possible SQLi/XSS reflection).',
+          point: paramPoint(item, 'query', name),
+          evidence: 'query parameter name matches a search-term pattern; value not retained',
+          manualCheck: 'In Burp Repeater, vary this parameter with a benign marker and compare the response with the baseline.',
+          source: 'burp-query',
+        });
+      }
+      if (ORDER_PARAM_NAMES.has(lower)) {
+        add({
+          owasp: 'A03',
+          severity: 'high',
+          title: 'Sort/order parameter in captured query',
+          possibleVulnerability: 'A sort/order parameter may be concatenated into a query (possible SQLi via ordering).',
+          point: paramPoint(item, 'query', name),
+          evidence: 'query parameter name suggests ordering or filtering',
+          manualCheck: 'In Burp Repeater, vary only this parameter and observe error text or changed row ordering.',
+          source: 'burp-query',
+        });
+      }
+    }
+    for (const name of bodyParams) {
+      const lower = name.toLowerCase();
+      if (!SEARCH_PARAM_NAMES.has(lower) && !ORDER_PARAM_NAMES.has(lower)) continue;
+      add({
+        owasp: 'A03',
+        severity: ORDER_PARAM_NAMES.has(lower) ? 'high' : 'medium',
+        title: 'Filter-like parameter in captured body',
+        possibleVulnerability: 'A search or ordering parameter in the request body may be used in a query (possible injection).',
+        point: paramPoint(item, 'body', name),
+        evidence: 'body parameter name matches a search or ordering pattern; value not retained',
+        manualCheck: 'In Burp Repeater, vary one body parameter at a time and compare the response with the baseline.',
+        source: 'burp-body',
+      });
+    }
+    if (/\/api\//i.test(path) && queryParams.length) {
+      add({
+        owasp: 'A03',
+        severity: 'medium',
+        title: 'API endpoint with query parameters',
+        possibleVulnerability: 'An API endpoint accepting query parameters may be an injection surface.',
+        point: endpointPoint(item, `query parameters ${queryParams.map((n) => `"${n}"`).join(', ')}`),
+        evidence: 'captured API path with query parameter names present',
+        manualCheck: 'In Burp Repeater, vary one query parameter at a time and compare the response with the baseline.',
+        source: 'burp-endpoint',
+      });
+    }
+
+    /* A04 — Insecure Design */
+    for (const name of allParams) {
+      if (!DEBUG_PARAM_NAMES.has(name)) continue;
+      add({
+        owasp: 'A04',
+        severity: 'low',
+        title: 'Debug-like parameter in captured request',
+        possibleVulnerability: 'A debug/test/dev parameter may expose development behaviour in production.',
+        point: paramPoint(item, queryParams.some((q) => q.toLowerCase() === name) ? 'query' : 'body', name),
+        evidence: 'parameter name matches a debug/test pattern; value not retained',
+        manualCheck: 'In Burp Repeater, compare the response with and without this parameter using benign values only.',
+        source: 'burp-signal',
+      });
+    }
+    if (STATE_METHODS.has(method) && !hasCsrfParam && !hasCsrfHeader && !AUTH_PATH_RE.test(path)) {
+      add({
+        owasp: 'A04',
+        severity: 'medium',
+        title: 'State-changing request without CSRF token name',
+        possibleVulnerability: 'A state-changing request was captured without an obvious CSRF token parameter or header name, so forgery may be possible.',
+        point: endpointPoint(item, `method ${method}`),
+        evidence: 'no csrf/xsrf/token name observed in captured parameter or header names',
+        manualCheck: 'In Burp Repeater, confirm whether the server validates a per-session token for this state-changing request.',
+        source: 'burp-signal',
+      });
+    }
+
+    /* A05 — Security Misconfiguration */
+    if (isResponse && hasHeaders) {
+      for (const name of ['server', 'x-powered-by']) {
+        if (!headers.has(name)) continue;
+        const display = name === 'server' ? 'Server' : 'X-Powered-By';
+        add({
+          owasp: 'A05',
+          severity: 'low',
+          title: `${display} header exposed in traffic`,
+          possibleVulnerability: `A ${display} header was captured, which may disclose implementation details.`,
+          point: endpointPoint(item, `response header ${display}`),
+          evidence: 'allowlisted header name present; value not retained',
+          manualCheck: 'In Burp Repeater, inspect the header and confirm whether the disclosed component is still supported.',
+          source: 'burp-header',
+        });
+      }
+    }
+
+    /* A06 — Vulnerable Components */
+    const library = libraryHit(path);
+    if (library) {
+      add({
+        owasp: 'A06',
+        severity: 'medium',
+        title: 'Versioned JavaScript library in traffic',
+        possibleVulnerability: 'A captured resource path contains a version-like token for a common library and may be outdated.',
+        point: endpointPoint(item, `resource path ${path}`),
+        evidence: `captured path contains a ${library} version-like token`,
+        manualCheck: 'In a browser, confirm the loaded library version and compare it with the current supported release.',
+        source: 'burp-endpoint',
+      });
+    }
+
+    /* A07 — Identification and Auth Failures */
+    if (AUTH_PATH_RE.test(path)) {
+      add({
+        owasp: 'A07',
+        severity: 'medium',
+        title: 'Authentication endpoint in traffic',
+        possibleVulnerability: 'An authentication-related endpoint was captured and may be subject to weak login or session controls.',
+        point: endpointPoint(item, 'authentication endpoint'),
+        evidence: 'captured path matches a login/auth/register/reset pattern',
+        manualCheck: 'In Burp Proxy, inspect the authentication request and confirm rate limiting, MFA and session rotation.',
+        source: 'burp-endpoint',
+      });
+      if (method === 'GET' && bodyParams.some((n) => PASSWORD_PARAM_NAMES.has(n.toLowerCase()))) {
+        add({
+          owasp: 'A07',
+          severity: 'high',
+          title: 'Password-like body parameter on GET',
+          possibleVulnerability: 'A GET request contains a password-like parameter name, which may place credentials in URLs or history.',
+          point: endpointPoint(item, `body parameter "${bodyParams.find((n) => PASSWORD_PARAM_NAMES.has(n.toLowerCase()))}"`),
+          evidence: 'method GET with a password-like body parameter name; value not retained',
+          manualCheck: 'In Burp Proxy, confirm that credentials are not present in the request URL, logs or browser history.',
+          source: 'burp-body',
+        });
+      }
+    }
+
+    /* A08 — no passive traffic metadata rule */
+
+    /* A09 — no passive evidence for logging failures */
+
+    /* A10 — SSRF */
+    for (const [where, params] of [['query', queryParams], ['body', bodyParams]]) {
+      for (const name of params) {
+        if (!SSRF_PARAM_NAMES.has(name.toLowerCase())) continue;
+        add({
+          owasp: 'A10',
+          severity: 'high',
+          title: 'URL-like parameter in captured request',
+          possibleVulnerability: 'A URL-like parameter may be fetched server-side (possible SSRF).',
+          point: paramPoint(item, where, name),
+          evidence: `${where} parameter name suggests a URL destination; value not retained`,
+          manualCheck: 'In Burp Repeater, confirm whether the server fetches the destination and restrict it to an allowlist.',
+          source: where === 'query' ? 'burp-query' : 'burp-body',
+        });
+      }
+    }
+    if (FETCH_PATH_RE.test(path) && allParams.some((name) => SSRF_PARAM_NAMES.has(name))) {
+      add({
+        owasp: 'A10',
+        severity: 'high',
+        title: 'Fetch/proxy endpoint with URL-like parameter',
+        possibleVulnerability: 'A fetch/proxy endpoint accepts a URL-like parameter and may perform server-side requests.',
+        point: endpointPoint(item, 'fetch/proxy endpoint'),
+        evidence: 'captured fetch/proxy path with URL-like parameter name',
+        manualCheck: 'In Burp Repeater, confirm whether the server makes a request to the supplied destination.',
+        source: 'burp-endpoint',
+      });
+    }
   }
-  summary.total = findings.length;
-  summary.pagesCovered = covered.size;
 
-  return { findings, byOwasp, summary, scope: SCOPE_TEXT };
+  return finalizeFindings(ctx, TRAFFIC_SCOPE_TEXT);
 }
 
 export default buildSiteFindings;
