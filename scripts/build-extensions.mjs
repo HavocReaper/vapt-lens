@@ -24,6 +24,7 @@ const required = [
   "panel.js",
   "src/core/scanner.js",
   "src/core/analyzer.js",
+  "src/core/playbooks.js",
   "src/core/checks.js",
   "src/core/messages.js",
   "icons/icon.svg",
