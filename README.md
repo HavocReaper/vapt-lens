@@ -1,115 +1,128 @@
 # VAPT Lens
 
-A guided, **read-only** security-testing assistant for the browser. It is a floating overlay that observes the page you are on, optionally reads Burp Suite traffic you import, and tells you **what to test and how** — turning a local library of `offensive-*` security skills into actionable, OWASP-mapped test cards.
+A guided, **read-only** security-testing assistant for your browser. Open any website you are authorized to test, click the VAPT Lens icon, and get a live breakdown of the page's attack surface plus step-by-step **what to test and how** cards powered by **Claude Red (`offensive-*`) skills via OpenCode**.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 
 > [!WARNING]
-> **Authorized testing only.** VAPT Lens does not send attack payloads, scan other hosts, exploit anything, or log in anywhere. It reads the current page and locally imported Burp metadata, then produces a testing guide. Use it only on systems you own or are explicitly authorized to test. See [docs/SAFETY.md](docs/SAFETY.md).
+> **Authorized testing only.** VAPT Lens never sends attack payloads, never submits forms, never logs in, and never scans hosts outside the site you are viewing. It only reads page structure and your imported Burp metadata, then gives you manual testing guidance. Use it only on systems you own or have written permission to test. See [docs/SAFETY.md](docs/SAFETY.md).
 
-## What it does
+---
 
-- **Floating overlay** in Chrome/Chromium and Firefox — one click opens the guided side panel.
-- **Same-origin site crawl** — GET-only, bounded, read-only walk of the current site, producing an inventory of forms, input fields, URL parameters and endpoints with their **CSS selectors / XPath locations**.
-- **Attack surface view** — a structured map of everything the page exposes, including field locations and URL parameter origins.
-- **OWASP Top 10 mapping** — every guided test is tagged with an OWASP 2021 category (A01–A10), with a dedicated OWASP view and filters.
-- **Passive security checks** — evaluates captured security headers (CSP, HSTS, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy) and gives you copy-only manual commands for port and TLS/cipher checks. Lens never runs those scans itself.
-- **Guided test cards** — what to try manually, why it applies here, copyable safe test strings, what to look for, and the source skill.
-- **Burp Community support** — live traffic through an optional Jython feeder, plus passive collection of browser request metadata and pasted XML/HAR/curl exports.
-- **Hybrid guidance** — offline cards compiled from your local `offensive-*` skills, with AI-tailored cards via your local OpenCode service (on by default, local-only).
-- **Local notes** per host and Markdown export.
+## Prerequisites (What you need on your PC)
 
-## What it does not do
+Before setting up VAPT Lens on a new computer, make sure you have:
 
-No active scanning, fuzzing, exploitation, credential attacks, or remote telemetry. The extension never calls a remote service — it talks only to `http://127.0.0.1:8787`, the local bridge you run yourself.
+1. **Node.js 20 or newer** — required to build the extension and run the local helper service.
+   - Check in a terminal: `node -v` (should show `v20.x.x` or higher).
+   - Install from [nodejs.org](https://nodejs.org/) if missing.
+2. **Git** — to download the project (or download the ZIP from GitHub instead).
+3. **A supported browser**:
+   - **Chrome, Chromium, Brave, or Edge** (version 116+), **or**
+   - **Firefox** (version 115+).
+4. **OpenCode + Claude Red skills (recommended for full guidance)**:
+   - VAPT Lens compiles its offline testing cards from **Claude Red (`offensive-*`) skills** installed for **OpenCode** (by default in `~/.config/opencode/skills`), and uses **OpenCode** (`opencode` CLI) for live AI-tailored hints.
+   - Make sure `opencode --version` works in your terminal and your Claude Red `offensive-*` skill folders are in place.
+   - *Without OpenCode / Claude Red skills:* the extension and helper still install and map the page's attack surface, passive header checks, and site map, while the guided test cards remain minimal/empty until you add skills.
+5. **Optional — Burp Suite Community**:
+   - Only needed if you want to stream live proxy traffic or paste exported Burp XML / HAR / `curl` requests into the **Burp traffic** tab.
 
-## Requirements
+---
 
-| Requirement | Notes |
-| --- | --- |
-| **Node.js 20+** | Runs the bridge and the build scripts. No npm dependencies to install. |
-| **Chrome/Chromium 116+** or **Firefox 115+** | MV3 side panel (Chrome) / sidebar (Firefox). |
-| **Optional:** `opencode` CLI | Only for AI-tailored cards. Without it, offline skill cards still work. |
-| **Optional:** `offensive-*` skills | The knowledge base is compiled from your own skill library. Without it the app runs, but guided cards are empty. |
-| **Optional:** Burp Suite Community | For live traffic via the Jython feeder, or import exports manually. |
+## Step-by-step Setup (Fresh PC)
 
-## Installation
+No third-party npm packages are required — everything runs with built-in Node.js modules.
 
-### 1. Clone and build
+### Step 1: Download the project
 
 ```sh
 git clone https://github.com/HavocReaper/vapt-lens.git
 cd vapt-lens
+```
+
+*(If you don't use Git, click **Code → Download ZIP** on GitHub, unzip it, and open a terminal inside the extracted `vapt-lens` folder.)*
+
+### Step 2: Build the knowledge base & extension
+
+```sh
 npm run build
 ```
 
-`npm run build` does two things:
+This does two things automatically:
+1. Reads your **Claude Red (`offensive-*`) skills** from `~/.config/opencode/skills` and compiles them into a local knowledge base.
+2. Builds ready-to-load browser packages in `dist/chrome/` and `dist/firefox/`.
 
-1. `scripts/build-kb.mjs` compiles every `offensive-*/SKILL.md` under `~/.config/opencode/skills` into `bridge/data/knowledge-base.json`.
-2. `scripts/build-extensions.mjs` produces loadable packages in `dist/chrome/` and `dist/firefox/`.
+> **Skills stored in a custom folder?** Point the builder at your folder before building:
+> - **macOS / Linux:** `VAPT_LENS_SKILLS_DIR=/path/to/skills npm run build`
+> - **Windows (PowerShell):** `$env:VAPT_LENS_SKILLS_DIR="C:\path\to\skills"; npm run build`
 
-If you keep your skills somewhere else, point the builder at that directory:
+*(If no skills folder is found yet, `npm run build` still succeeds with a warning so you can finish installing the extension and run `npm run kb` later.)*
 
-```sh
-VAPT_LENS_SKILLS_DIR=/path/to/skills npm run kb
-```
+### Step 3: Load the extension in your browser
 
-If the directory does not exist yet, the build still succeeds and writes an empty knowledge base with a warning — you can regenerate it later with `npm run kb`.
-
-### 2. Load the extension
-
-**Chrome / Chromium / Edge**
-
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked** and select the `dist/chrome` folder.
-4. Pin **VAPT Lens** to the toolbar.
+**Chrome / Chromium / Brave / Edge**
+1. Open `chrome://extensions` in your address bar.
+2. Turn **Developer mode** on (top-right toggle).
+3. Click **Load unpacked**.
+4. Select the **`dist/chrome`** folder inside your `vapt-lens` directory.
+5. Click the puzzle-piece icon in the toolbar and **pin VAPT Lens** so the icon is always visible.
 
 **Firefox**
-
-1. Open `about:debugging#/runtime/this-firefox`.
+1. Open `about:debugging#/runtime/this-firefox` in your address bar.
 2. Click **Load Temporary Add-on…**.
-3. Select `dist/firefox/manifest.json`.
+3. Open the **`dist/firefox`** folder and select **`manifest.json`**.
 
-Firefox temporary add-ons are removed when the browser restarts; reload the manifest to re-enable it.
+*(Note: Firefox clears temporary add-ons when you close the browser — just repeat Step 3 when you reopen Firefox.)*
 
-### 3. Start the local bridge
+### Step 4: Start the local helper service
+
+Keep one terminal window open inside the `vapt-lens` folder and run:
 
 ```sh
 npm run bridge
 ```
 
-You should see:
+Leave this terminal running while you test. Your browser extension talks only to this helper running on your own machine — nothing is ever sent to any external VAPT Lens server. You do **not** need to enter any local address or URL anywhere; the extension finds the helper automatically.
 
-```
-VAPT Lens bridge listening at http://127.0.0.1:8787
-```
+---
 
-Verify it from another terminal:
+## How it works on an actual website (After clicking the icon)
 
-```sh
-curl http://127.0.0.1:8787/api/health
-```
+Once the helper is running and the extension is loaded:
 
-The bridge binds to `127.0.0.1` only. To use a different port:
+1. **Open your target website** in a normal browser tab (for example, your own test app, local lab, or an authorized bug-bounty target).
+2. **Look for the floating VAPT Lens orb** in the corner of the webpage, or **click the VAPT Lens icon** in your browser toolbar.
+3. **Click the orb / icon**:
+   - The **VAPT Lens side panel** slides open alongside the webpage.
+   - It immediately performs a **read-only structural scan** of the page you are viewing — inspecting forms, input field names, URL query parameter names, links, scripts, endpoints, cookie names, and security header names.
+   - It **never** reads passwords, field values, tokens, cookie values, or keystrokes.
+4. **Confirm authorization**:
+   - At the top of the panel, tick **"I'm authorized to test this target"**. This safety gate unlocks the **Guided tests** cards.
+5. **Choose how deep you want to go** using the top buttons:
+   - **Scan page** — Re-reads the current tab (click this whenever you navigate to a new page, open a modal, or log into a new area).
+   - **Crawl site** — Runs a polite, bounded, **GET-only** walk of links on the same site to discover additional pages, forms, and parameters.
+   - **Scan whole site** — Runs the site crawl and builds a combined site map and finding summary with a live progress bar.
+   - **AI hints (toggle)** — When enabled, sends redacted structural metadata (host, paths, parameter *names*, and tech stack — never values) to your local **OpenCode** CLI using **Claude Red skills** to generate tailored test ideas for that specific page.
 
-```sh
-PORT=9000 npm run bridge
-```
+### What you see in each tab
 
-> The extension is hard-wired to port `8787`. If you change the port, the panel will show the bridge as offline.
+| Tab | What it gives you |
+| --- | --- |
+| **Overview** | Snapshot of the target host, detected technologies, counts of forms/inputs/parameters/endpoints, and top focus areas. |
+| **Attack surface** | Every form, input field, URL parameter, cookie name, DOM sink, and endpoint on the current page — along with its **CSS selector / XPath** so you know exactly where it lives. |
+| **Site map** | Tree of every page, form, input, and parameter discovered by **Crawl site** or **Scan whole site**. |
+| **Security checks** | Passive audit of response security headers (`CSP`, `HSTS`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`) plus copy-only manual commands for TLS/port checks. |
+| **OWASP Top 10** | Breakdown of how the page maps onto OWASP 2021 categories (`A01`–`A10`). |
+| **Guided tests** | Prioritized manual test cards built from your **Claude Red skills** (and optional OpenCode AI hints). Filter by OWASP category, test category, or keyword. Each card tells you *why it applies here*, *what to test manually*, *safe copyable test strings*, *what to look for*, and the source skill. |
+| **Burp traffic** | Automatically lists passive browser request metadata, or lets you paste Burp XML, HAR files, `curl` commands, or URL lists (values are stripped automatically). |
+| **Notes** | Per-host scratchpad saved only in your browser, with one-click **Export Markdown** for your report. |
 
-### 4. First run
+---
 
-1. Browse to a page you are authorized to test.
-2. Click the shield orb, tick **I'm authorized to test this target**, and press **Scan**.
-3. Open **Guided tests** for OWASP-mapped cards, or click **Crawl site** for a bounded GET-only walk.
-4. The **Site map** tab then lists every discovered form, input, URL parameter and endpoint with its selector/XPath.
+## Configuration (Optional)
 
-## Configuration
-
-The bridge reads `bridge/config.json` if it exists (created from [`bridge/config.example.json`](bridge/config.example.json)):
+The local helper reads `bridge/config.json` if present. To customize defaults, copy [`bridge/config.example.json`](bridge/config.example.json) to `bridge/config.json`:
 
 ```json
 {
@@ -122,84 +135,69 @@ The bridge reads `bridge/config.json` if it exists (created from [`bridge/config
 
 | Key | Meaning |
 | --- | --- |
-| `aiEnabled` | Gate the local AI layer. On by default; everything is local. |
-| `model` | Informational only — AI runs through your existing `opencode` configuration. |
-| `port` | Used when the `PORT` environment variable is unset. |
-| `burpLive` | Accept passive/live Burp traffic on `/api/burp/stream`. |
+| `aiEnabled` | Enables or disables local OpenCode AI hints (on by default). |
+| `model` | Informational — OpenCode uses whichever model you already configured in OpenCode. |
+| `port` | Internal helper port — advanced option only. Leave the default so the extension connects automatically. |
+| `burpLive` | Accepts passive/live Burp traffic metadata. |
 
-Settings can also be changed at runtime through the panel (`GET`/`POST /api/config`).
+You can also toggle **AI hints** directly inside the extension panel.
 
-## AI cards (optional)
+## Burp Suite integration (Optional)
 
-AI mode shells out to your installed OpenCode CLI with a redacted prompt — host, path, parameter *names*, technologies and status codes only. No token, cookie or header values are included.
+Because Burp Suite Community has no built-in REST API, VAPT Lens supports:
+- **Live traffic** using the optional Jython feeder (`burp/burp_to_bridge.py`), or
+- **Copy/paste exports** (Burp site-map/proxy XML, HAR files, or `curl` commands) in the **Burp traffic** tab.
 
-```sh
-# make sure the CLI is on your PATH and has a model configured
-opencode --version
-npm run bridge
-```
+Only method, host, path, parameter/header **names**, status code, and content type are kept. See [docs/BURP.md](docs/BURP.md) for the full Burp setup guide.
 
-If the CLI is missing, the panel silently falls back to offline skill cards; nothing breaks.
-
-## Burp Suite
-
-Burp Community has no REST API, so VAPT Lens supports three paths: the optional Jython forwarder for live traffic, pasted site-map/proxy XML, and pasted HAR or `curl` commands. Only method, path, parameter/header **names**, status and content type are used. See [docs/BURP.md](docs/BURP.md) for the full walkthrough, including the 2026 Jython/Java version notes.
-
-## Commands
+## Useful commands
 
 | Command | What it does |
 | --- | --- |
-| `npm run bridge` | Start the local bridge (default `127.0.0.1:8787`). |
-| `npm run kb` | Regenerate the knowledge base from installed skills. |
-| `npm run build` | Regenerate the KB and build both browser packages. |
-| `npm test` | Run the unit and integration tests (Node's built-in test runner). |
-| `npm run smoke` | Boot the bridge on a spare port and exercise its API end to end. |
+| `npm run build` | Compile your Claude Red skills into the KB and build Chrome + Firefox extensions. |
+| `npm run kb` | Rebuild only the knowledge base after adding or updating skills. |
+| `npm run bridge` | Start the local helper service required by the extension. |
+| `npm test` | Run all 55 unit and integration tests. |
+| `npm run smoke` | Start the helper on a spare port and verify its API end-to-end. |
 
 ## Project layout
 
 ```
 extension/        Chrome MV3 + Firefox MV3, shared source with two manifests
   src/core/       Browser-agnostic scanning, analysis and header checks
-bridge/           Local Node JSON service: KB, analysis, Burp import, optional AI
+bridge/           Local Node service: KB, analysis, Burp import, OpenCode AI bridge
   lib/            crawl, analyze, burp, site-findings, ai, util
-  test/           Bridge unit + integration tests
-scripts/          Builders for the knowledge base and extension packages
+scripts/          Knowledge-base compiler and extension package builder
 burp/             Optional Burp Community Jython traffic forwarder
 docs/             Burp and safety guides
 test/             Cross-component integration tests
 ```
 
-The extension never calls a remote service. It talks only to the local bridge; the bridge talks only to your local filesystem and (optionally) your local `opencode` binary.
-
-## Development
-
-```sh
-npm test          # 52 tests: extension core, bridge, integration
-npm run build     # rebuild KB + both extension packages
-npm run smoke     # end-to-end bridge API check
-```
-
-There are no third-party dependencies, so there is nothing to `npm install`. Tests use `node --test`, so Node 20+ is all you need.
-
-To enable continuous integration, copy [docs/ci.yml](docs/ci.yml) to `.github/workflows/ci.yml` and push it with a token that has the `workflow` scope — GitHub rejects workflow files from tokens without it. The workflow runs the test suite, the build and the smoke test on Node 20, 22 and 24.
-
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| Panel says the bridge is offline | Start `npm run bridge`; check `curl http://127.0.0.1:8787/api/health`. |
-| Guided tests tab is empty | The knowledge base has no skills: run `npm run kb` with your `offensive-*` skills installed, or set `VAPT_LENS_SKILLS_DIR`. |
-| AI hints never appear | Ensure `opencode` is on `PATH` and configured, and that `aiEnabled` is true in the bridge config. |
-| Extension won't load in Firefox after restart | Temporary add-ons are unloaded on restart — reload `dist/firefox/manifest.json`. |
-| Burp feeder shows Python errors | Use Jython **2.7.5rc1 standalone** with Java 17/21/25, not CPython or the installer JAR. See [docs/BURP.md](docs/BURP.md). |
-| Crawl finds few pages | The crawler is bounded and same-origin by design; raise the page cap only on sites you own. |
+| Panel says the helper/bridge is offline | Make sure `npm run bridge` is running in your terminal. |
+| **Guided tests** tab asks for authorization | Tick **"I'm authorized to test this target"** at the top of the panel. |
+| **Guided tests** tab has no cards | Make sure your Claude Red (`offensive-*`) skills are in `~/.config/opencode/skills` (or set `VAPT_LENS_SKILLS_DIR`) and run `npm run kb`, then reload the extension if needed. |
+| AI hints don't appear | Check that `opencode --version` works in your terminal and **AI hints** is checked in the panel. Offline skill cards still work without it. |
+| Extension disappeared in Firefox | Firefox removes temporary add-ons on browser restart — reload `dist/firefox/manifest.json` from `about:debugging`. |
+| Burp feeder shows Python errors | Use Jython **2.7.5rc1 standalone** with Java 17/21/25. See [docs/BURP.md](docs/BURP.md). |
+
+## Development
+
+```sh
+npm test          # 55 tests (Node built-in test runner)
+npm run build     # rebuild KB + browser packages
+npm run smoke     # end-to-end helper check
+```
+
+To enable GitHub Actions CI in your own fork/repo, copy [docs/ci.yml](docs/ci.yml) to `.github/workflows/ci.yml`.
 
 ## Safety
 
-Guidance only. No attacks are performed, no secret values are stored or transmitted, and AI runs locally by default. Read [docs/SAFETY.md](docs/SAFETY.md) before using Lens on anything you do not own.
+Guidance only — no attacks are performed, no secret values are stored or transmitted, and all processing stays on your machine. Read [docs/SAFETY.md](docs/SAFETY.md) before testing any target.
 
 ## License
 
 [MIT](LICENSE) © 2026 HavocReaper
-
-VAPT Lens is a testing aid, not a substitute for judgment or a signed scope agreement. You are responsible for staying inside your authorization.
