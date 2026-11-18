@@ -104,6 +104,7 @@ Once the helper is running and the extension is loaded:
    - **Crawl site** — Runs a polite, bounded, **GET-only** walk of links on the same site to discover additional pages, forms, and parameters.
    - **Scan whole site** — Runs the site crawl and builds a combined site map and finding summary with a live progress bar.
    - **AI hints (toggle)** — When enabled, sends redacted structural metadata (host, paths, parameter *names*, and tech stack — never values) to your local **OpenCode** CLI using **Claude Red skills** to generate tailored test ideas for that specific page.
+6. **Open the Payloads tab** when you want actual strings to try. Choose an attack class (for example SQLi, LFI or XSS), read the manual techniques, and click a probe to copy it. Paste it yourself into Burp Repeater or your browser on the authorized target. VAPT Lens never sends it for you.
 
 ### What you see in each tab
 
@@ -114,7 +115,8 @@ Once the helper is running and the extension is loaded:
 | **Site map** | Tree of every page, form, input, and parameter discovered by **Crawl site** or **Scan whole site**. |
 | **Security checks** | Passive audit of response security headers (`CSP`, `HSTS`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`) plus copy-only manual commands for TLS/port checks. |
 | **OWASP Top 10** | Breakdown of how the page maps onto OWASP 2021 categories (`A01`–`A10`). |
-| **Guided tests** | Prioritized manual test cards built from your **Claude Red skills** (and optional OpenCode AI hints). Filter by OWASP category, test category, or keyword. Each card tells you *why it applies here*, *what to test manually*, *safe copyable test strings*, *what to look for*, and the source skill. |
+| **Guided tests** | Prioritized manual test cards built from your **Claude Red skills** (and optional OpenCode AI hints). Filter by OWASP category, test category, or keyword. Each card tells you *why it applies here*, *what to test manually*, *safe copyable test strings*, *what to look for*, and the source skill. Cards link to the full playbook. |
+| **Payloads** | An authorization-gated library of curated, **non-destructive** manual test strings and step-by-step techniques for SQLi, LFI/path traversal, XSS, command injection, SSTI, SSRF, XXE, IDOR, auth, upload, redirects, GraphQL, information disclosure and mass assignment. Filter by attack class or search, then copy a probe into Burp Repeater or your browser. Nothing is sent automatically. |
 | **Burp traffic** | Automatically lists passive browser request metadata, or lets you paste Burp XML, HAR files, `curl` commands, or URL lists (values are stripped automatically). |
 | **Notes** | Per-host scratchpad saved only in your browser, with one-click **Export Markdown** for your report. |
 
@@ -157,7 +159,7 @@ Only method, host, path, parameter/header **names**, status code, and content ty
 | `npm run build` | Compile your Claude Red skills into the KB and build Chrome + Firefox extensions. |
 | `npm run kb` | Rebuild only the knowledge base after adding or updating skills. |
 | `npm run bridge` | Start the local helper service required by the extension. |
-| `npm test` | Run all 55 unit and integration tests. |
+| `npm test` | Run all 59 unit and integration tests. |
 | `npm run smoke` | Start the helper on a spare port and verify its API end-to-end. |
 
 ## Project layout
@@ -187,7 +189,7 @@ test/             Cross-component integration tests
 ## Development
 
 ```sh
-npm test          # 55 tests (Node built-in test runner)
+npm test          # 59 tests (Node built-in test runner)
 npm run build     # rebuild KB + browser packages
 npm run smoke     # end-to-end helper check
 ```
