@@ -1,6 +1,7 @@
 import { askOpencode } from './ai.mjs';
 import { nowIso, safeId, truncate } from './util.mjs';
 import { buildSecurityChecks } from '../../extension/src/core/checks.js';
+import { findPlaybook, payloadsFor } from '../../extension/src/core/playbooks.js';
 
 const DEFAULT_MAX_CARDS = 12;
 
@@ -345,13 +346,20 @@ function stepsFromSkill(skill, category) {
   return steps.slice(0, 6);
 }
 
-function payloadsFromSkill(skill, category) {
+function payloadsFromSkill(skill, category, skillId = '') {
   const out = [];
   for (const block of skill?.codeBlocks || []) {
     if (out.length >= 3) break;
     const raw = String(block || '').trim();
     if (!isSafeCopyableString(raw)) continue;
     out.push({ label: `KB example ${out.length + 1}`, value: truncate(raw, 200) });
+  }
+  if (out.length < 3) {
+    for (const item of payloadsFor(category, skillId || skill?.id || '', 3)) {
+      if (out.length >= 3) break;
+      if (out.some((p) => p.value === item.value)) continue;
+      out.push({ label: `Playbook · ${item.label}`, value: item.value });
+    }
   }
   if (!out.length) {
     const seeds = SAFE_EXAMPLES[categoryKey(category)] || SAFE_EXAMPLES.default;
@@ -397,7 +405,8 @@ export function localCards(observation = {}, kb = {}, maxCards = DEFAULT_MAX_CAR
       severityHint: severityFor(category, skills[0]),
       whyHere: `Matched ${evidenceDetails(evidence, observation).join('; ') || 'KB rule'}.`,
       steps: stepsFromSkill(skills[0], category),
-      payloads: payloadsFromSkill(skills[0], category),
+      payloads: payloadsFromSkill(skills[0], category, skillIds[0] || ''),
+      playbookId: findPlaybook(category, skillIds[0] || '')?.id || '',
       verify: verifyText(category),
       defense: defenseText(category),
       skillId: skillIds[0] || '',
