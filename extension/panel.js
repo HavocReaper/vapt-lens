@@ -3,6 +3,7 @@
  * Talks only to the local bridge via background. Never issues attack traffic.
  */
 import * as MSG_MOD from './src/core/messages.js';
+import { PLAYBOOKS } from './src/core/playbooks.js';
 
 const MESSAGE_NAMES = [
   'SCAN_PAGE', 'SCAN_RESULT', 'GET_STATE', 'STATE_RESULT', 'STATE_UPDATED',
@@ -84,6 +85,8 @@ const ui = {
   category: '',
   owasp: '',
   search: '',
+  playbookCategory: '',
+  playbookSearch: '',
   trafficLive: null,
   trafficFindings: null,
   trafficTimer: null,
@@ -826,6 +829,11 @@ function cardHTML(card) {
           ${payloads}
         </div>
       ` : ''}
+      ${card?.playbookId ? `
+        <div class="vl-playbook-link">
+          <button type="button" class="vl-btn vl-small" data-open-playbook="${escAttr(card.playbookId)}">View full playbook →</button>
+        </div>
+      ` : ''}
       <div class="vl-verify"><strong>Verify:</strong> ${esc(card.verify || 'Review the response manually.')}</div>
       <div class="vl-defense"><strong>Defense:</strong> ${esc(card.defense || 'Apply the relevant secure coding control.')}</div>
       <div class="vl-source">Category: ${esc(card.category || 'general')}${card?.owasp?.id ? ` · OWASP: ${esc(card.owasp.id)} ${esc(card.owasp.name || '')}` : ''} · Source: ${esc(card.skillId || card.source || 'local rules')} · No attacks are sent by this tool.</div>
@@ -896,6 +904,83 @@ function renderTests() {
   cardsRoot.innerHTML = filtered.length
     ? filtered.map(cardHTML).join('')
     : empty('No matching tests', 'Try a different category or search term.');
+}
+
+/* ------------------------------------------------------------------ *
+ * Rendering — Payloads & techniques
+ * ------------------------------------------------------------------ */
+
+function playbookHTML(book) {
+  const techniques = (Array.isArray(book.techniques) ? book.techniques : [])
+    .map((t) => `<li><strong>${esc(t.name || 'Technique')}</strong> — ${esc(t.steps || '')}</li>`)
+    .join('');
+  const payloads = (Array.isArray(book.payloads) ? book.payloads : [])
+    .map((p) => `<button type="button" class="vl-copy" data-payload="${escAttr(p?.value ?? '')}" title="Copy ${escAttr(p?.label || 'test string')}">${esc(p?.label || 'Copy')}</button>`)
+    .join('');
+
+  return `
+    <article class="vl-card vl-playbook" data-playbook="${escAttr(book.id || '')}">
+      <div class="vl-card-head">
+        <h3>${esc(book.title || 'Playbook')}</h3>
+        <div class="chips">
+          ${book.owasp ? `<span class="vl-owasp">${esc(book.owasp)}</span>` : ''}
+          <span class="vl-sev ${severityClass(book.severity)}">${esc(book.severity || 'info')}</span>
+        </div>
+      </div>
+      <p class="vl-why">${esc(book.summary || '')}</p>
+      <div class="vl-techniques">
+        <span class="vl-subtle">Manual techniques</span>
+        <ol class="vl-steps">${techniques}</ol>
+      </div>
+      <div class="vl-payloads">
+        <span class="vl-subtle">Copyable probes · non-destructive · copy only</span>
+        ${payloads}
+      </div>
+      <div class="vl-verify"><strong>Verify:</strong> ${esc(book.verify || 'Compare against a baseline response.')}</div>
+      <div class="vl-defense"><strong>Defense:</strong> ${esc(book.defense || 'Apply the relevant secure coding control.')}</div>
+      <div class="vl-source">Category: ${esc(book.category || 'general')} · ${book.payloads?.length || 0} payloads · VAPT Lens does not send these strings.</div>
+    </article>
+  `;
+}
+
+function renderPlaybooks() {
+  const root = $('#playbooks');
+  if (!root) return;
+  const count = $('#playbookCount');
+
+  if (!ui.authorized) {
+    root.innerHTML = empty(
+      'Hidden until authorized',
+      'Tick “I’m authorized to test this target” above to reveal manual payloads and techniques.',
+    );
+    if (count) count.textContent = `${PLAYBOOKS.length} playbooks available once authorized`;
+    return;
+  }
+
+  const select = $('#playbookCategory');
+  if (select) {
+    const current = ui.playbookCategory || select.value || '';
+    select.innerHTML = `<option value="">All attack classes</option>${PLAYBOOKS.map((p) => `<option value="${escAttr(p.id)}">${esc(p.title)}</option>`).join('')}`;
+    ui.playbookCategory = PLAYBOOKS.some((p) => p.id === current) ? current : '';
+    select.value = ui.playbookCategory;
+  }
+
+  const needle = ui.playbookSearch.trim().toLowerCase();
+  const filtered = PLAYBOOKS.filter((book) => {
+    if (ui.playbookCategory && book.id !== ui.playbookCategory) return false;
+    if (!needle) return true;
+    const haystack = [
+      book.id, book.title, book.category, book.summary, book.owasp, book.verify, book.defense,
+      ...(book.techniques || []).flatMap((t) => [t.name, t.steps]),
+      ...(book.payloads || []).flatMap((p) => [p.label, p.value]),
+    ].join(' ').toLowerCase();
+    return haystack.includes(needle);
+  });
+
+  if (count) count.textContent = `${filtered.length} of ${PLAYBOOKS.length} playbooks`;
+  root.innerHTML = filtered.length
+    ? filtered.map(playbookHTML).join('')
+    : empty('No matching playbooks', 'Try a different attack class or search term.');
 }
 
 /* ------------------------------------------------------------------ *
@@ -989,6 +1074,7 @@ function renderAll() {
   renderChecks();
   renderOwasp();
   renderTests();
+  renderPlaybooks();
   renderTraffic();
 }
 
@@ -1075,6 +1161,7 @@ function switchTab(name) {
     panel.classList.toggle('is-active', active);
     panel.hidden = !active;
   });
+  if (name === 'payloads') renderPlaybooks();
 }
 
 function exportMarkdown() {
@@ -1323,6 +1410,7 @@ function wireEvents() {
     ui.authorized = !!event.target.checked;
     send(MSG.SET_AUTHORIZED, { tabId: ui.tabId, authorized: ui.authorized });
     renderTests();
+    renderPlaybooks();
   });
 
   $('#aiToggle').addEventListener('change', async (event) => {
@@ -1344,6 +1432,35 @@ function wireEvents() {
   });
 
   $('#cards').addEventListener('click', async (event) => {
+    const open = event.target.closest('[data-open-playbook]');
+    if (open) {
+      ui.playbookCategory = open.dataset.openPlaybook || '';
+      ui.playbookSearch = '';
+      const search = $('#playbookSearch');
+      if (search) search.value = '';
+      renderPlaybooks();
+      switchTab('payloads');
+      return;
+    }
+    const button = event.target.closest('.vl-copy');
+    if (!button) return;
+    const ok = await copyText(button.dataset.payload || '');
+    const original = button.textContent;
+    button.textContent = ok ? 'Copied' : 'Copy failed';
+    setTimeout(() => { button.textContent = original; }, 1200);
+  });
+
+  $('#playbookCategory').addEventListener('change', (event) => {
+    ui.playbookCategory = event.target.value || '';
+    renderPlaybooks();
+  });
+
+  $('#playbookSearch').addEventListener('input', (event) => {
+    ui.playbookSearch = event.target.value || '';
+    renderPlaybooks();
+  });
+
+  $('#playbooks').addEventListener('click', async (event) => {
     const button = event.target.closest('.vl-copy');
     if (!button) return;
     const ok = await copyText(button.dataset.payload || '');
